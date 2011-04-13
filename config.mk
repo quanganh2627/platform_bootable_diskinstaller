@@ -64,7 +64,7 @@ endef
 # Build the installer ramdisk image
 installer_initrc := $(diskinstaller_root)/init.rc
 installer_kernel := $(INSTALLED_KERNEL_TARGET)
-installer_ramdisk := $(TARGET_INSTALLER_OUT)/ramdisk-installer.img
+installer_ramdisk := $(TARGET_INSTALLER_OUT)/ramdisk-installer.img.gz
 installer_build_prop := $(INSTALLED_BUILD_PROP_TARGET)
 installer_config := $(diskinstaller_root)/installer.conf
 installer_binary := \
@@ -77,13 +77,12 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 		$(TARGET_DISK_LAYOUT_CONFIG) \
 		$(installer_binary) \
 		$(installer_initrc) \
-		$(installer_kernel) \
 		$(installer_config) \
 		$(android_sysbase_files) \
 		$(installer_base_files) \
 		$(installer_build_prop)
 	@echo ----- Making installer image ------
-	rm -rf $(TARGET_INSTALLER_OUT)
+	rm -rf $(TARGET_INSTALLER_ROOT_OUT)
 	mkdir -p $(TARGET_INSTALLER_OUT)
 	mkdir -p $(TARGET_INSTALLER_ROOT_OUT)
 	mkdir -p $(TARGET_INSTALLER_ROOT_OUT)/sbin
@@ -110,39 +109,10 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 	$(MKBOOTFS) $(TARGET_INSTALLER_ROOT_OUT) | gzip > $(installer_ramdisk)
 	@echo ----- Made installer ramdisk -[ $@ ]-
 
-######################################################################
-# Now the installer boot image which includes the kernel and the ramdisk
-internal_installerimage_args := \
-	--kernel $(installer_kernel) \
-	--ramdisk $(installer_ramdisk)
-
-internal_installerimage_files := \
-	$(filter-out --%,$(internal_installerimage_args))
-
-BOARD_INSTALLER_CMDLINE := $(strip $(BOARD_INSTALLER_CMDLINE))
-ifdef BOARD_INSTALLER_CMDLINE
-  internal_installerimage_args += --cmdline "$(BOARD_INSTALLER_CMDLINE)"
-endif
-
-installer_tmp_img := $(TARGET_INSTALLER_OUT)/installer_tmp.img
-tmp_dir_for_inst_image := \
-	$(call intermediates-dir-for,EXECUTABLES,installer_img)/installer_img
-internal_installerimage_args += --tmpdir $(tmp_dir_for_inst_image)
-internal_installerimage_args += --genext2fs $(MKEXT2IMG)
-$(installer_tmp_img): $(MKEXT2IMG) $(internal_installerimage_files)
-	$(call pretty,"Target installer image: $@")
-	$(hide) $(MKEXT2BOOTIMG) $(internal_installerimage_args) --output $@
 
 ######################################################################
 # Now make a data image that contains all the target image files for the
 # installer.
-
-bootldr_bin := $(PRODUCT_OUT)/grub/grub.bin
-installer_target_data_files := \
-	$(INSTALLED_BOOTIMAGE_TARGET) \
-	$(INSTALLED_SYSTEMIMAGE) \
-	$(INSTALLED_USERDATAIMAGE_TARGET) \
-	$(bootldr_bin)
 
 # $(1): src directory
 # $(2): output file
@@ -156,14 +126,28 @@ define build-installerimage-ext-target
 endef
 
 installer_data_img := $(TARGET_INSTALLER_OUT)/installer_data.img
-$(installer_data_img): $(diskinstaller_root)/config.mk \
+installer_bootloader := $(TARGET_INSTALLER_OUT)/data/bootldr.bin
+installer_mbr_bin = $(SYSLINUX_BASE)/mbr.bin
+
+# Created by generating 32 512k blocks of all zeroes and running
+# fdisk on it to generate an empty (but valid) partition table
+installer_ptable_bin := $(diskinstaller_root)/bootsectors.bin
+
+$(installer_data_img): \
+			$(diskinstaller_root)/config.mk \
 			$(installer_target_data_files) \
+			$(INSTALLED_BOOTIMAGE_TARGET) \
+			$(INSTALLED_SYSTEMIMAGE) \
+			$(INSTALLED_USERDATAIMAGE_TARGET) \
 			$(MKEXT2IMG) \
+			$(installer_mbr_bin) \
+			$(installer_ptable_bin) \
 			$(installer_ramdisk)
 	@echo --- Making installer data image ------
 	mkdir -p $(TARGET_INSTALLER_OUT)
 	mkdir -p $(TARGET_INSTALLER_OUT)/data
-	cp -f $(bootldr_bin) $(TARGET_INSTALLER_OUT)/data/bootldr.bin
+	cp $(installer_ptable_bin) $(installer_bootloader)
+	dd if=$(installer_mbr_bin) of=$(installer_bootloader) conv=notrunc
 	cp -f $(INSTALLED_BOOTIMAGE_TARGET) $(TARGET_INSTALLER_OUT)/data/boot.img
 	cp -f $(INSTALLED_SYSTEMIMAGE) \
 		$(TARGET_INSTALLER_OUT)/data/system.img
@@ -174,24 +158,80 @@ $(installer_data_img): $(diskinstaller_root)/config.mk \
 	@echo --- Finished installer data image -[ $@ ]-
 
 ######################################################################
-# now combine the installer image with the grub bootloader
-grub_bin := $(PRODUCT_OUT)/grub/grub.bin
+
+installer_live_initrc := $(diskinstaller_root)/init-live.$(TARGET_INSTALLER_BOOTMEDIA).rc
+installer_live_ramdisk := $(PRODUCT_OUT)/ramdisk-live.img.gz
+installer_boot_img := $(TARGET_INSTALLER_OUT)/installer_boot.img
+installer_syslinux_cfg := $(TARGET_INSTALLER_OUT)/syslinux.cfg
+installer_syslinux_cfgin := $(diskinstaller_root)/syslinux-installer.cfg.in
+installer_syslinux_splash := $(diskinstaller_root)/splash.png
+installer_syslinux_menu := $(SYSLINUX_BASE)/vesamenu.c32
 installer_layout := $(diskinstaller_root)/installer_img_layout.conf
 edit_mbr := $(HOST_OUT_EXECUTABLES)/editdisklbl
 
+
+# Create the ramdisk for the live boot environment
+$(installer_live_ramdisk): \
+			$(installer_ramdisk) \
+			$(MKBOOTFS) \
+			$(INSTALLED_RAMDISK_TARGET) \
+			$(INSTALLED_BUILD_PROP_TARGET) \
+			$(TARGET_ROOT_OUT)/init.rc \
+			$(installer_live_initrc)
+	@echo "Creating live ramdisk: $@"
+	rm -rf $(TARGET_LIVEINSTALLER_OUT)
+	mkdir -p $(TARGET_LIVEINSTALLER_OUT)
+	cp -fR $(TARGET_INSTALLER_ROOT_OUT) $(TARGET_LIVEINSTALLER_OUT)
+	cp -f $(installer_live_initrc) $(TARGET_LIVEINSTALLER_ROOT_OUT)/init.$(TARGET_INSTALLER_BOOTMEDIA).rc
+	cp -f $(INSTALLED_BUILD_PROP_TARGET) $(TARGET_LIVEINSTALLER_ROOT_OUT)
+	cp -f $(TARGET_ROOT_OUT)/init.rc $(TARGET_LIVEINSTALLER_ROOT_OUT)
+	mkdir -p $(TARGET_LIVEINSTALLER_ROOT_OUT)/cache
+	$(MKBOOTFS) $(TARGET_LIVEINSTALLER_ROOT_OUT) | gzip > $@
+	@echo "Done with live ramdisk -[ $@ ]-"
+
+
+# Put the correct kernel command line in the syslinux configuration
+$(installer_syslinux_cfg): $(installer_syslinux_cfgin)
+	mkdir -p $(TARGET_INSTALLER_OUT)
+	sed "s|CMDLINE|$(BOARD_INSTALLER_CMDLINE)|g" $(installer_syslinux_cfgin) > $@
+
+# Create the FAT boot partition with SYSLINUX installed on it
+tmp_dir_for_inst_image := \
+	$(call intermediates-dir-for,EXECUTABLES,installer_img)/installer_img
+
+$(installer_boot_img): \
+				$(installer_live_ramdisk) \
+				$(installer_ramdisk) \
+				$(installer_syslinux_menu) \
+				$(installer_syslinux_splash) \
+				$(installer_syslinux_cfg) \
+				$(installer_kernel)
+	$(MKFATBOOTIMG) \
+	    --kernel $(installer_kernel) \
+	    --file $(installer_live_ramdisk) \
+	    --file $(installer_ramdisk) \
+	    --file $(installer_syslinux_menu) \
+	    --file $(installer_syslinux_splash) \
+	    --file $(installer_syslinux_cfg) \
+	    --tmpdir $(TARGET_INSTALLER_OUT)/boot \
+	    --output $@
+
+
 INSTALLED_DISKINSTALLERIMAGE_TARGET := $(PRODUCT_OUT)/installer.img
 $(INSTALLED_DISKINSTALLERIMAGE_TARGET): \
-					$(installer_tmp_img) \
+					$(installer_boot_img) \
 					$(installer_data_img) \
-					$(grub_bin) \
 					$(edit_mbr) \
-					$(installer_layout)
+					$(installer_layout) \
+					$(installer_ptable_bin) \
+					$(installer_mbr_bin)
 	@echo "Creating bootable installer image: $@"
 	@rm -f $@
-	@cat $(grub_bin) > $@
-	@$(edit_mbr) -l $(installer_layout) -i $@ \
-		inst_boot=$(installer_tmp_img) \
+	cp $(installer_ptable_bin) $@
+	$(edit_mbr) -v -l $(installer_layout) -i $@ \
+		inst_boot=$(installer_boot_img) \
 		inst_data=$(installer_data_img)
+	dd if=$(installer_mbr_bin) of=$@ bs=440 count=1 conv=notrunc
 	@echo "Done with bootable installer image -[ $@ ]-"
 
 

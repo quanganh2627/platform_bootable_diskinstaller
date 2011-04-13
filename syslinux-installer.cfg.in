@@ -1,0 +1,33 @@
+##
+# Android SYSLINUX input file. Substitutions needed:
+#
+# CMDLINE - Appropriate kernel command line parameters
+#
+default vesamenu.c32
+timeout 600
+
+menu background splash.png
+menu title Android USB Live & Installation
+menu color border 0 #ffffffff #00000000
+menu color sel 7 #ffffff00 #ff000000
+menu color title 0 #ffffffff #00000000
+menu color tabmsg 0 #ffffffff #00000000
+menu color unsel 0 #ffffffff #00000000
+menu color hotsel 0 #ffffff00 #ff000000
+menu color hotkey 7 #ffffff00 #00000000
+
+label harddisk
+	menu label Start from harddisk
+	localboot 0xffff
+
+label live
+	menu label ^Run Android without installation
+	kernel /kernel
+	append initrd=/ramdisk-live.img.gz CMDLINE
+
+label install
+	menu label ^Install Android to harddisk
+	kernel /kernel
+	append initrd=/ramdisk-installer.img.gz CMDLINE
+
+

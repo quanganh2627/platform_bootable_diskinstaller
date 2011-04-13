@@ -1,0 +1,20 @@
+on early-init
+    loglevel 10
+
+on init
+
+#
+# partition map
+#
+# usb key
+#   -- pri --
+#   sdb1    boot
+#   sdb2    /data
+#
+
+# mount android base partitions
+    mount ext4 /dev/block/sdb2 /data wait nosuid nodev
+    mount ext4 loop@/data/system.img /system ro
+
+on boot
+# See init.cdk-basic.rc

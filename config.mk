@@ -11,6 +11,7 @@ android_sysbase_modules := \
 	liblog \
 	libm \
 	libstdc++ \
+	libusbhost \
 	linker \
 	ash \
 	toolbox \

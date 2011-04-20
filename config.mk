@@ -130,10 +130,6 @@ installer_data_img := $(TARGET_INSTALLER_OUT)/installer_data.img
 installer_bootloader := $(TARGET_INSTALLER_OUT)/data/bootldr.bin
 installer_mbr_bin = $(SYSLINUX_BASE)/mbr.bin
 
-# Created by generating 32 512k blocks of all zeroes and running
-# fdisk on it to generate an empty (but valid) partition table
-installer_ptable_bin := $(diskinstaller_root)/bootsectors.bin
-
 $(installer_data_img): \
 			$(diskinstaller_root)/config.mk \
 			$(installer_target_data_files) \
@@ -147,8 +143,7 @@ $(installer_data_img): \
 	@echo --- Making installer data image ------
 	mkdir -p $(TARGET_INSTALLER_OUT)
 	mkdir -p $(TARGET_INSTALLER_OUT)/data
-	cp $(installer_ptable_bin) $(installer_bootloader)
-	dd if=$(installer_mbr_bin) of=$(installer_bootloader) conv=notrunc
+	cp $(installer_mbr_bin) $(installer_bootloader)
 	cp -f $(INSTALLED_BOOTIMAGE_TARGET) $(TARGET_INSTALLER_OUT)/data/boot.img
 	cp -f $(INSTALLED_SYSTEMIMAGE) \
 		$(TARGET_INSTALLER_OUT)/data/system.img
@@ -228,7 +223,7 @@ $(INSTALLED_DISKINSTALLERIMAGE_TARGET): \
 					$(installer_mbr_bin)
 	@echo "Creating bootable installer image: $@"
 	@rm -f $@
-	cp $(installer_ptable_bin) $@
+	dd if=/dev/zero of=$@ bs=512 count=32
 	$(edit_mbr) -v -l $(installer_layout) -i $@ \
 		inst_boot=$(installer_boot_img) \
 		inst_data=$(installer_data_img)

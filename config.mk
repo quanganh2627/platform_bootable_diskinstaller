@@ -187,9 +187,9 @@ $(installer_live_ramdisk): \
 
 
 # Put the correct kernel command line in the syslinux configuration
-$(installer_syslinux_cfg): $(installer_syslinux_cfgin)
+$(installer_syslinux_cfg): $(installer_syslinux_cfgin) $(BOARD_INSTALLER_CMDLINE_FILE)
 	mkdir -p $(TARGET_INSTALLER_OUT)
-	sed "s|CMDLINE|$(BOARD_INSTALLER_CMDLINE)|g" $(installer_syslinux_cfgin) > $@
+	sed "s|CMDLINE|$(shell cat $(BOARD_INSTALLER_CMDLINE_FILE))|g" $(installer_syslinux_cfgin) > $@
 
 # Create the FAT boot partition with SYSLINUX installed on it
 tmp_dir_for_inst_image := \

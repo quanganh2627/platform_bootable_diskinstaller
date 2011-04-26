@@ -88,6 +88,7 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 	mkdir -p $(TARGET_INSTALLER_ROOT_OUT)
 	mkdir -p $(TARGET_INSTALLER_ROOT_OUT)/sbin
 	mkdir -p $(TARGET_INSTALLER_ROOT_OUT)/data
+	mkdir -p $(TARGET_INSTALLER_ROOT_OUT)/images
 	mkdir -p $(TARGET_INSTALLER_SYSTEM_OUT)
 	mkdir -p $(TARGET_INSTALLER_SYSTEM_OUT)/etc
 	mkdir -p $(TARGET_INSTALLER_SYSTEM_OUT)/bin
@@ -126,7 +127,7 @@ define build-installerimage-ext-target
           $(MKEXTUSERIMG) $(1) $(2) $(4) $(3) $(5)
 endef
 
-installer_data_img := $(TARGET_INSTALLER_OUT)/installer_data.img
+installer_data_img := $(TARGET_INSTALLER_OUT)/installer_data.squashfs
 installer_bootloader := $(TARGET_INSTALLER_OUT)/data/bootldr.bin
 installer_mbr_bin = $(SYSLINUX_BASE)/mbr.bin
 
@@ -136,7 +137,6 @@ $(installer_data_img): \
 			$(INSTALLED_BOOTIMAGE_TARGET) \
 			$(INSTALLED_SYSTEMIMAGE) \
 			$(INSTALLED_USERDATAIMAGE_TARGET) \
-			$(MKEXT2IMG) \
 			$(installer_mbr_bin) \
 			$(installer_ptable_bin) \
 			$(installer_ramdisk)
@@ -149,8 +149,7 @@ $(installer_data_img): \
 		$(TARGET_INSTALLER_OUT)/data/system.img
 	cp -f $(INSTALLED_USERDATAIMAGE_TARGET) \
 		$(TARGET_INSTALLER_OUT)/data/userdata.img
-	$(call build-installerimage-ext-target,$(TARGET_INSTALLER_OUT)/data,$@, \
-		inst_data,ext4,$(BOARD_INSTALLERIMAGE_PARTITION_SIZE))
+	PATH=/sbin:/usr/sbin:$(PATH) mksquashfs $(TARGET_INSTALLER_OUT)/data $@ -no-recovery -noappend
 	@echo --- Finished installer data image -[ $@ ]-
 
 ######################################################################
@@ -212,11 +211,18 @@ $(installer_boot_img): \
 	    --tmpdir $(TARGET_INSTALLER_OUT)/boot \
 	    --output $@
 
+# Create a small amount of writable space under /stash where users can copy
+# stuff off their device if needed onto the USB key
+installer_stash_img := $(TARGET_INSTALLER_OUT)/installer_stash.img
+installer_stash_size := 10M
+$(installer_stash_img): $(MAKE_EXT4FS)
+	$(MAKE_EXT4FS) -l $(installer_stash_size) -a stash $@
 
 INSTALLED_DISKINSTALLERIMAGE_TARGET := $(PRODUCT_OUT)/installer.img
 $(INSTALLED_DISKINSTALLERIMAGE_TARGET): \
 					$(installer_boot_img) \
 					$(installer_data_img) \
+					$(installer_stash_img) \
 					$(edit_mbr) \
 					$(installer_layout) \
 					$(installer_ptable_bin) \
@@ -226,7 +232,8 @@ $(INSTALLED_DISKINSTALLERIMAGE_TARGET): \
 	dd if=/dev/zero of=$@ bs=512 count=32
 	$(edit_mbr) -v -l $(installer_layout) -i $@ \
 		inst_boot=$(installer_boot_img) \
-		inst_data=$(installer_data_img)
+		inst_data=$(installer_data_img) \
+		inst_stash=$(installer_stash_img)
 	dd if=$(installer_mbr_bin) of=$@ bs=440 count=1 conv=notrunc
 	@echo "Done with bootable installer image -[ $@ ]-"
 

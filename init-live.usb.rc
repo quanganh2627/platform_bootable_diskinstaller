@@ -9,13 +9,16 @@ on init
 # usb key
 #   -- pri --
 #   sdb1    boot
-#   sdb2    /data
+#   sdb2    /images
 #
 
 # mount android base partitions
     wait /dev/block/sdb2 20
-    mount ext4 /dev/block/sdb2 /data nosuid nodev
-    mount ext4 loop@/data/system.img /system ro
+    mount squashfs /dev/block/sdb2 /images nosuid nodev
+    mount tmpfs tmpfs /data
+    mount ext4 loop@/images/system.img /system ro
+    mkdir /stash
+    mount ext4 /dev/block/sdb3 /stash rw
 
 on boot
 # See init.cdk-basic.rc

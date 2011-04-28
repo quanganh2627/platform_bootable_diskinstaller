@@ -67,7 +67,6 @@ installer_initrc := $(diskinstaller_root)/init.rc
 installer_kernel := $(INSTALLED_KERNEL_TARGET)
 installer_ramdisk := $(TARGET_INSTALLER_OUT)/ramdisk-installer.img.gz
 installer_build_prop := $(INSTALLED_BUILD_PROP_TARGET)
-installer_config := $(diskinstaller_root)/installer.conf
 installer_binary := \
 	$(call intermediates-dir-for,EXECUTABLES,diskinstaller)/diskinstaller
 
@@ -78,7 +77,7 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 		$(TARGET_DISK_LAYOUT_CONFIG) \
 		$(installer_binary) \
 		$(installer_initrc) \
-		$(installer_config) \
+		$(TARGET_DISKINSTALLER_CONFIG) \
 		$(android_sysbase_files) \
 		$(installer_base_files) \
 		$(installer_build_prop)
@@ -103,7 +102,7 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 	cp -f $(installer_initrc) $(TARGET_INSTALLER_ROOT_OUT)/
 	cp -f $(TARGET_DISK_LAYOUT_CONFIG) \
 		$(TARGET_INSTALLER_SYSTEM_OUT)/etc/disk_layout.conf
-	cp -f $(installer_config) \
+	cp -f $(TARGET_DISKINSTALLER_CONFIG) \
 		$(TARGET_INSTALLER_SYSTEM_OUT)/etc/installer.conf
 	cp -f $(installer_binary) $(TARGET_INSTALLER_SYSTEM_OUT)/bin/installer
 	$(hide) chmod ug+rw $(TARGET_INSTALLER_ROOT_OUT)/default.prop

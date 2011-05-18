@@ -36,10 +36,11 @@
 #include "diskconfig/diskconfig.h"
 #include "installer.h"
 
-#define MKE2FS_BIN     "/system/bin/mke2fs"
-#define E2FSCK_BIN     "/system/bin/e2fsck"
-#define TUNE2FS_BIN    "/system/bin/tune2fs"
-#define RESIZE2FS_BIN  "/system/bin/resize2fs"
+#define MKE2FS_BIN          "/system/bin/mke2fs"
+#define MAKE_EXT4FS_BIN     "/system/bin/make_ext4fs"
+#define E2FSCK_BIN          "/system/bin/e2fsck"
+#define TUNE2FS_BIN         "/system/bin/tune2fs"
+#define RESIZE2FS_BIN       "/system/bin/resize2fs"
 
 static int
 usage(void)
@@ -236,7 +237,6 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
 
     /* process the 'mkfs' parameter */
     if ((tmp = config_str(img, "mkfs", NULL)) != NULL) {
-        char *journal_opts;
         char vol_lbl[16]; /* ext2/3 has a 16-char volume label */
 
         if (!pinfo) {
@@ -247,23 +247,20 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
             goto fail;
         }
 
+        /* put the partition name as the volume label */
+        strncpy(vol_lbl, pinfo->name, sizeof(vol_lbl));
+
         if (!strcmp(tmp, "ext4"))
-            journal_opts = "";
+            rv = exec_cmd(MAKE_EXT4FS_BIN, "-L", vol_lbl, dest_part, NULL);
         else if (!strcmp(tmp, "ext2"))
-            journal_opts = "";
+            rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, dest_part, NULL);
         else if (!strcmp(tmp, "ext3"))
-            journal_opts = "-j";
+            rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, "-j", dest_part, NULL);
         else {
             LOGE("Unknown filesystem type for mkfs: %s", tmp);
             goto fail;
         }
 
-        /* put the partition name as the volume label */
-        strncpy(vol_lbl, pinfo->name, sizeof(vol_lbl));
-
-        /* since everything checked out, lets make the fs, and return since
-         * we don't need to do anything else */
-        rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, journal_opts, dest_part, NULL);
         if (rv < 0)
             goto fail;
         else if (rv > 0) {

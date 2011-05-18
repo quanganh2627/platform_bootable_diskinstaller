@@ -41,7 +41,10 @@ installer_base_modules := \
 	libext2_blkid \
 	libext2_uuid \
 	libext2_profile \
+	libext4_utils \
+	libz \
 	badblocks \
+	make_ext4fs \
 	resize2fs \
 	tune2fs \
 	mke2fs \

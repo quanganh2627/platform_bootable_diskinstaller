@@ -202,8 +202,10 @@ $(installer_boot_img): \
 				$(installer_syslinux_menu) \
 				$(installer_syslinux_splash) \
 				$(installer_syslinux_cfg) \
-				$(installer_kernel)
+				$(installer_kernel) \
+				$(HOST_OUT_EXECUTABLES)/syslinux
 	$(MKFATBOOTIMG) \
+	    --syslinux $(HOST_OUT_EXECUTABLES)/syslinux \
 	    --kernel $(installer_kernel) \
 	    --file $(installer_live_ramdisk) \
 	    --file $(installer_ramdisk) \

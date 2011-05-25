@@ -36,3 +36,8 @@ service logcat /system/bin/logcat
 
 service console /system/bin/sh
     console
+    disabled
+
+on property:init.svc.installer=stopped
+    wait 2
+    start console

@@ -13,9 +13,9 @@ on init
     mkdir /cache
     mkdir /stash
     mount /tmp /tmp tmpfs
-    wait /dev/block/sdb2 20
-    mount squashfs /dev/block/sdb2 /data
-    mount ext4 /dev/block/sdb3 /stash rw
+    wait /dev/block/sdb5 20
+    mount squashfs /dev/block/sdb5 /data
+    mount ext4 /dev/block/sdb6 /stash rw
 
 on boot
     ifup lo

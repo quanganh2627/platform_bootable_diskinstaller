@@ -113,6 +113,7 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 installer_data_img := $(TARGET_INSTALLER_OUT)/installer_data.squashfs
 installer_data_images := $(INSTALLED_BOOTLOADER_MODULE) \
 			 $(INSTALLED_BOOTIMAGE_TARGET) \
+			 $(INSTALLED_RECOVERYIMAGE_TARGET) \
 			 $(INSTALLED_SYSTEMIMAGE) \
 			 $(INSTALLED_USERDATAIMAGE_TARGET)
 ifeq ($(TARGET_USE_DROIDBOOT),true)

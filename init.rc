@@ -38,6 +38,10 @@ service console /system/bin/sh
     console
     disabled
 
+service adbd /sbin/adbd
+    disabled
+
 on property:init.svc.installer=stopped
     wait 2
     start console
+    start adbd

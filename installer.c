@@ -41,6 +41,9 @@
 #define E2FSCK_BIN          "/system/bin/e2fsck"
 #define TUNE2FS_BIN         "/system/bin/tune2fs"
 #define RESIZE2FS_BIN       "/system/bin/resize2fs"
+/*Size of the crypto footer (16 K) */
+#define CRYPTO_FOOTER_SIZE  (16)
+#define MAX_DIGITS          (20)
 
 static int
 usage(void)
@@ -137,9 +140,10 @@ do_fsck(const char *dst, int force)
 }
 
 static int
-process_ext2_image(const char *dst, const char *src, uint32_t flags, int test)
+process_ext2_image(const char *dst, const char *src, uint32_t flags, int test, int part_size)
 {
     int rv;
+    char resize_fs[MAX_DIGITS];
 
     /* First, write the image to disk. */
     if (write_raw_image(dst, src, 0, test))
@@ -163,7 +167,17 @@ process_ext2_image(const char *dst, const char *src, uint32_t flags, int test)
 
     /* If the user requested that we resize, let's do it now */
     if (flags & INSTALL_FLAG_RESIZE) {
-        if ((rv = exec_cmd(RESIZE2FS_BIN, "-F", dst, NULL)) < 0)
+         /* Resize the filesystem to extend into the left partition space */
+         /* Leave some space for the crypto footer (usualy 16k) */
+        if (part_size)
+            rv = snprintf(resize_fs , MAX_DIGITS, "%dK", (part_size - CRYPTO_FOOTER_SIZE));
+        else
+            strcpy(resize_fs, " ");
+	if (rv < 0) {
+            LOGE("Error setting size: %d", rv);
+            return 1;
+        }
+        if ((rv = exec_cmd(RESIZE2FS_BIN, "-F", dst, (char *)resize_fs, NULL)) < 0)
             return 1;
         if (rv) {
             LOGE("Error while running resize2fs: %d", rv);
@@ -206,6 +220,7 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
     uint8_t type = 0;
     int rv;
     int func_ret = 1;
+    int part_size = 0;
 
     filename = config_str(img, "filename", NULL);
 
@@ -233,6 +248,7 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
             goto fail;
         }
         offset = pinfo->start_lba * dinfo->sect_size;
+        part_size = pinfo->len_kb;
     }
 
     /* process the 'mkfs' parameter */
@@ -350,7 +366,7 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
             /* fallthru */
 
         case INSTALL_IMAGE_EXT2:
-            if (process_ext2_image(dest_part, filename, flags, test))
+            if (process_ext2_image(dest_part, filename, flags, test, part_size))
                 goto fail;
             break;
 

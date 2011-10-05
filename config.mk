@@ -89,6 +89,7 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 	rm -rf $(installer_root_out)
 	@echo Copying baseline ramdisk...
 	cp -fR $(TARGET_ROOT_OUT) $(installer_root_out)
+	rm -f $(installer_root_out)/initlogo.rle
 	mkdir -p $(installer_system_out)/
 	mkdir -p $(installer_system_out)/etc
 	@echo Copying sysbase files...

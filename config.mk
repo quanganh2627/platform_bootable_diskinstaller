@@ -241,15 +241,15 @@ $(INSTALLED_DISKINSTALLERIMAGE_TARGET): $(diskinstaller_root)/config.mk \
 		$(installer_layout) \
 		$(installer_mbr_bin)
 	@echo "Creating bootable installer image: $@"
-	@rm -f $@
-	dd if=/dev/zero of=$@ bs=512 count=32
-	$(edit_mbr) -v -l $(installer_layout) -i $@ \
+	$(hide) rm -f $@
+	$(hide) touch $@
+	$(hide) $(edit_mbr) -v -l $(installer_layout) -i $@ \
 		inst_bootloader=$(installer_bootloader_img) \
 		inst_boot=$(installer_boot_img) \
 		inst_live=$(installer_live_boot_img) \
 		inst_data=$(installer_data_img) \
 		inst_stash=$(installer_stash_img)
-	dd if=$(SYSLINUX_BASE)/mbr.bin of=$@ bs=440 count=1 conv=notrunc
+	$(hide) dd if=$(SYSLINUX_BASE)/mbr.bin of=$@ bs=440 count=1 conv=notrunc
 	@echo "Done with bootable installer image -[ $@ ]-"
 
 

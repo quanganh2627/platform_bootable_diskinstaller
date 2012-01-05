@@ -28,9 +28,6 @@
 
 #include "diskconfig/diskconfig.h"
 
-/* give us some room */
-#define EXTRA_LBAS      100
-
 static struct pf_map {
     struct part_info *pinfo;
     const char *filename;
@@ -59,7 +56,6 @@ parse_args(int argc, char *argv[], struct disk_info **dinfo, int *test,
     char *img_file = NULL;
     struct stat filestat;
     int x;
-    int update_lba = 0;
 
     while ((x = getopt (argc, argv, "vthl:i:")) != EOF) {
         switch (x) {
@@ -114,11 +110,6 @@ parse_args(int argc, char *argv[], struct disk_info **dinfo, int *test,
         return 1;
     }
 
-    if ((*dinfo)->num_lba == 0) {
-        (*dinfo)->num_lba = (*dinfo)->skip_lba + EXTRA_LBAS;
-        update_lba = 1;
-    }
-
     /* parse the filename->partition mappings from the command line and patch
      * up a loaded config file's partition table entries to have
      * length == filesize */
@@ -154,9 +145,6 @@ parse_args(int argc, char *argv[], struct disk_info **dinfo, int *test,
         }
 
         pinfo->len_kb = (uint32_t) ((tmp_stat.st_size + 1023) >> 10);
-        if (update_lba)
-            (*dinfo)->num_lba += 
-                    ((uint64_t)pinfo->len_kb * 1024) / (*dinfo)->sect_size;
         printf("Updated %s length to be %uKB\n", pinfo->name, pinfo->len_kb);
     }
 

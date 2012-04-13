@@ -70,7 +70,6 @@ endef
 # Build the installer ramdisk image
 installer_initrc := $(diskinstaller_root)/init.rc
 installer_ramdisk := $(TARGET_INSTALLER_OUT)/ramdisk-installer.img.gz
-installer_build_prop := $(INSTALLED_BUILD_PROP_TARGET)
 installer_binary := \
 	$(call intermediates-dir-for,EXECUTABLES,diskinstaller)/diskinstaller
 $(installer_ramdisk): $(diskinstaller_root)/config.mk \
@@ -83,30 +82,30 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 		$(TARGET_DISKINSTALLER_CONFIG) \
 		$(android_sysbase_files) \
 		$(installer_base_files) \
-		$(installer_build_prop)
+		$(INSTALLED_BUILD_PROP_TARGET) $(MINIGZIP)
 	@echo ----- Making installer image ------
-	mkdir -p $(TARGET_INSTALLER_OUT)
-	rm -rf $(installer_root_out)
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
+	$(hide) rm -rf $(installer_root_out)
 	@echo Copying baseline ramdisk...
-	cp -fR $(TARGET_ROOT_OUT) $(installer_root_out)
-	rm -f $(installer_root_out)/initlogo.rle
-	mkdir -p $(installer_system_out)/
-	mkdir -p $(installer_system_out)/etc
+	$(hide) cp -fR $(TARGET_ROOT_OUT) $(installer_root_out)
+	$(hide) rm -f $(installer_root_out)/initlogo.rle
+	$(hide) mkdir -p $(installer_system_out)/
+	$(hide) mkdir -p $(installer_system_out)/etc
 	@echo Copying sysbase files...
 	$(call sysbase-copy-files,$(TARGET_OUT),$(installer_system_out))
 	@echo Copying installer base files...
 	$(call installer-copy-modules,$(TARGET_OUT),\
 		$(installer_system_out))
 	@echo Modifying ramdisk contents...
-	cp -f $(installer_initrc) $(installer_root_out)/
-	cp -f $(TARGET_DISK_LAYOUT_CONFIG) \
+	$(hide) cp -f $(installer_initrc) $(installer_root_out)/
+	$(hide) cp -f $(TARGET_DISK_LAYOUT_CONFIG) \
 		$(installer_system_out)/etc/disk_layout.conf
-	cp -f $(TARGET_DISKINSTALLER_CONFIG) \
+	$(hide) cp -f $(TARGET_DISKINSTALLER_CONFIG) \
 		$(installer_system_out)/etc/installer.conf
-	cp -f $(installer_binary) $(installer_system_out)/bin/installer
+	$(hide) cp -f $(installer_binary) $(installer_system_out)/bin/installer
 	$(hide) chmod ug+rw $(installer_root_out)/default.prop
-	cat $(installer_build_prop) >> $(installer_root_out)/default.prop
-	$(MKBOOTFS) $(installer_root_out) | gzip > $(installer_ramdisk)
+	$(hide) cat $(INSTALLED_BUILD_PROP_TARGET) >> $(installer_root_out)/default.prop
+	$(hide) $(MKBOOTFS) $(installer_root_out) | $(MINIGZIP) > $@
 	@echo ----- Made installer ramdisk -[ $@ ]-
 
 
@@ -126,10 +125,10 @@ endif
 $(installer_data_img): $(diskinstaller_root)/config.mk \
 			$(installer_data_images)
 	@echo --- Making installer data image ------
-	mkdir -p $(TARGET_INSTALLER_OUT)
-	mkdir -p $(TARGET_INSTALLER_OUT)/data
-	cp -f $(installer_data_images) $(TARGET_INSTALLER_OUT)/data/
-	PATH=/sbin:/usr/sbin:$(PATH) mksquashfs $(TARGET_INSTALLER_OUT)/data $@ -no-recovery -noappend
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)/data
+	$(hide) cp -f $(installer_data_images) $(TARGET_INSTALLER_OUT)/data/
+	$(hide) PATH=/sbin:/usr/sbin:$(PATH) mksquashfs $(TARGET_INSTALLER_OUT)/data $@ -no-recovery -noappend
 	@echo --- Finished installer data image -[ $@ ]-
 
 
@@ -137,52 +136,45 @@ $(installer_data_img): $(diskinstaller_root)/config.mk \
 installer_live_initrc := $(diskinstaller_root)/init-live.$(TARGET_INSTALLER_BOOTMEDIA).rc
 installer_live_ramdisk := $(TARGET_INSTALLER_OUT)/ramdisk-live.img.gz
 $(installer_live_ramdisk):  $(diskinstaller_root)/config.mk \
-		$(installer_ramdisk) \
 		$(MKBOOTFS) \
 		$(INSTALLED_RAMDISK_TARGET) \
-		$(INSTALLED_BUILD_PROP_TARGET) \
-		$(TARGET_ROOT_OUT)/init.rc \
-		$(installer_live_initrc)
+		$(installer_live_initrc) $(MINIGZIP)
 	@echo "Creating live ramdisk: $@"
-	mkdir -p $(TARGET_INSTALLER_OUT)
-	rm -rf $(installer_live_root_out)
-	cp -fR $(installer_root_out) $(installer_live_root_out)
-	cp -f $(installer_live_initrc) $(installer_live_root_out)/init.$(TARGET_INSTALLER_BOOTMEDIA).rc
-	cp -f $(INSTALLED_BUILD_PROP_TARGET) $(installer_live_root_out)
-	cp -f $(TARGET_ROOT_OUT)/init.rc $(installer_live_root_out)
-	mkdir -p $(installer_live_root_out)/cache
-	mkdir -p $(installer_live_root_out)/images
-	$(MKBOOTFS) $(installer_live_root_out) | gzip > $@
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
+	$(hide) rm -rf $(installer_live_root_out)
+	$(hide) cp -fR $(TARGET_ROOT_OUT) $(installer_live_root_out)
+	$(hide) cp -f $(installer_live_initrc) $(installer_live_root_out)/init.$(TARGET_INSTALLER_BOOTMEDIA).rc
+	$(hide) mkdir -p $(installer_live_root_out)/images
+	$(hide) $(MKBOOTFS) $(installer_live_root_out) | $(MINIGZIP) > $@
 	@echo "Done with live ramdisk -[ $@ ]-"
 
 
 # Bootimage for entering the installation process
+# Force normal VGA so that printks can be seen on the display
 installer_boot_img := $(TARGET_INSTALLER_OUT)/installer_boot.img
 $(installer_boot_img):  $(diskinstaller_root)/config.mk \
 		$(INSTALLED_KERNEL_TARGET) \
 		$(installer_ramdisk) \
-		$(BOARD_INSTALLER_CMDLINE_FILE) \
 		$(MKBOOTIMG)
-	mkdir -p $(TARGET_INSTALLER_OUT)
-	$(MKBOOTIMG) --kernel $(INSTALLED_KERNEL_TARGET) \
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
+	$(hide) $(MKBOOTIMG) --kernel $(INSTALLED_KERNEL_TARGET) \
 		     --ramdisk $(installer_ramdisk) \
-		     --cmdline "$(strip $(shell cat $(BOARD_INSTALLER_CMDLINE_FILE)))" \
+		     --cmdline "$(BOARD_KERNEL_CMDLINE) vga=normal androidboot.bootmedia=$(TARGET_INSTALLER_BOOTMEDIA)" \
 		     --output $@
 
 
 # Bootimage for launching into a live Android environment from the USB
 # stick. The system partition is loopback mounted from the collection
-# of images, and data/cache are ramdisks
+# of images, and data/cache are ramdisks.
 installer_live_boot_img := $(TARGET_INSTALLER_OUT)/installer_live_boot.img
 $(installer_live_boot_img): $(diskinstaller_root)/config.mk \
 		$(INSTALLED_KERNEL_TARGET) \
 		$(installer_live_ramdisk) \
-		$(BOARD_INSTALLER_CMDLINE_FILE) \
 		$(MKBOOTIMG)
-	mkdir -p $(TARGET_INSTALLER_OUT)
-	$(MKBOOTIMG) --kernel $(INSTALLED_KERNEL_TARGET) \
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
+	$(hide) $(MKBOOTIMG) --kernel $(INSTALLED_KERNEL_TARGET) \
 		     --ramdisk $(installer_live_ramdisk) \
-		     --cmdline "$(strip $(shell cat $(BOARD_INSTALLER_CMDLINE_FILE)))" \
+		     --cmdline "$(BOARD_KERNEL_CMDLINE) androidboot.bootmedia=$(TARGET_INSTALLER_BOOTMEDIA)" \
 		     --output $@
 
 
@@ -191,8 +183,8 @@ $(installer_live_boot_img): $(diskinstaller_root)/config.mk \
 installer_stash_img := $(TARGET_INSTALLER_OUT)/installer_stash.img
 installer_stash_size := 10M
 $(installer_stash_img): $(diskinstaller_root)/config.mk $(MAKE_EXT4FS)
-	mkdir -p $(TARGET_INSTALLER_OUT)
-	$(MAKE_EXT4FS) -l $(installer_stash_size) -a stash $@
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
+	$(hide) $(MAKE_EXT4FS) -l $(installer_stash_size) -a stash $@
 
 
 # A phony target for all the diskinstaller image artifacts that don't
@@ -218,8 +210,8 @@ $(installer_bootloader_img): $(diskinstaller_root)/config.mk \
 		$(installer_syslinux_files) \
 		$(SYSLINUX_MK_IMG) \
 		$(SYSLINUX_BIN)
-	mkdir -p $(TARGET_INSTALLER_OUT)
-	$(SYSLINUX_MK_IMG) --syslinux $(SYSLINUX_BIN) \
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
+	$(hide) $(SYSLINUX_MK_IMG) --syslinux $(SYSLINUX_BIN) \
 			   --tmpdir $(TARGET_INSTALLER_OUT)/bootloader \
 			   --config $(diskinstaller_root)/syslinux.cfg \
 			   --output $@ \
@@ -258,8 +250,8 @@ INSTALLED_VBOXINSTALLERIMAGE_TARGET := $(PRODUCT_OUT)/installer.vdi
 $(INSTALLED_VBOXINSTALLERIMAGE_TARGET): \
 		$(INSTALLED_DISKINSTALLERIMAGE_TARGET) \
 		$(diskinstaller_root)/config.mk
-	@rm -f $@
-	@VBoxManage convertfromraw $< $@
+	$(hide) rm -f $@
+	$(hide) VBoxManage convertfromraw $< $@
 	@echo "Done with VirtualBox bootable installer image -[ $@ ]-"
 
 .PHONY: installer_img

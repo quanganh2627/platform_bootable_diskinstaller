@@ -108,13 +108,16 @@ exec_cmd(const char *cmd, ...) /* const char *arg, ...) */
 
     LOGI("Executing: %s", outbuf);
     rv = system(outbuf);
-    free(outbuf);
     if (rv < 0) {
         LOGI("Error while trying to execute '%s'", cmd);
-        return -1;
+        rv = -1;
+        goto exec_cmd_end;
     }
     rv = WEXITSTATUS(rv);
     LOGI("Done executing %s (%d)", outbuf, rv);
+
+exec_cmd_end:
+    free(outbuf);
     return rv;
 }
 

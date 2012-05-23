@@ -398,11 +398,12 @@ main(int argc, char *argv[])
     cnode *config;
     cnode *images;
     cnode *img;
-    int cnt = 0;
-    struct disk_info *device_disk_info;
+    unsigned int cnt;
+    struct disk_info *dinfo;
     int dump = 0;
     int test = 0;
     int x;
+    FILE *fp;
 
     while ((x = getopt (argc, argv, "thdc:l:p:")) != EOF) {
         switch (x) {
@@ -446,13 +447,13 @@ main(int argc, char *argv[])
     }
 
     /* Read and process the disk configuration */
-    if (!(device_disk_info = load_diskconfig(disk_conf_file, NULL))) {
+    if (!(dinfo = load_diskconfig(disk_conf_file, NULL))) {
         LOGE("Errors encountered while loading disk conf file %s",
              disk_conf_file);
         return 1;
     }
 
-    if (process_disk_config(device_disk_info)) {
+    if (process_disk_config(dinfo)) {
         LOGE("Errors encountered while processing disk config from %s",
              disk_conf_file);
         return 1;
@@ -460,7 +461,7 @@ main(int argc, char *argv[])
 
     /* Was all of this for educational purposes? If so, quit. */
     if (dump) {
-        dump_disk_config(device_disk_info);
+        dump_disk_config(dinfo);
         return 0;
     }
 
@@ -468,8 +469,29 @@ main(int argc, char *argv[])
     if (!(config = read_conf_file(inst_conf_file)))
         return 1;
 
+    /* Will erase any previously existing GPT partition table,
+     * but for our purposes here we don't care */
+    if (!(fp = fopen(dinfo->device, "w+"))) {
+        LOGE("Can't open disk device %s", dinfo->device);
+        return 1;
+    }
+    if (fseek(fp, dinfo->sect_size, SEEK_SET) < 0) {
+        LOGE("fseek: %s", strerror(errno));
+        return 1;
+    }
+    for (cnt = 0; cnt < (dinfo->skip_lba - 1) * dinfo->sect_size; cnt++) {
+        if (fputc('\0', fp) == EOF) {
+            LOGE("Failed to zero out space before first partition");
+            return 1;
+        }
+    }
+    if (fclose(fp)) {
+        LOGE("fclose: %s", strerror(errno));
+        return 1;
+    }
+
     /* First, partition the drive */
-    if (apply_disk_config(device_disk_info, test))
+    if (apply_disk_config(dinfo, test))
         return 1;
 
     /* Now process the installer config file and write the images to disk */
@@ -479,12 +501,11 @@ main(int argc, char *argv[])
         return 1;
     }
 
-    for (img = images->first_child; img; img = img->next) {
-        if (process_image_node(img, device_disk_info, test)) {
+    for (cnt = 0, img = images->first_child; img; img = img->next, cnt++) {
+        if (process_image_node(img, dinfo, test)) {
             LOGE("Unable to write data to partition. Try running 'installer' again.");
             return 1;
         }
-        ++cnt;
     }
 
     /*
@@ -494,7 +515,7 @@ main(int argc, char *argv[])
      * replaced the MBR with a new bootloader, and thus messed with
      * partition table.
      */
-    if (apply_disk_config(device_disk_info, test))
+    if (apply_disk_config(dinfo, test))
         return 1;
 
     LOGI("Done processing installer config. Configured %d images", cnt);

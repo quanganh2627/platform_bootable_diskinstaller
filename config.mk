@@ -128,7 +128,7 @@ $(installer_data_img): $(diskinstaller_root)/config.mk \
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)/data
 	$(hide) cp -f $(installer_data_images) $(TARGET_INSTALLER_OUT)/data/
-	$(hide) PATH=/sbin:/usr/sbin:$(PATH) mksquashfs $(TARGET_INSTALLER_OUT)/data $@ -no-recovery -noappend
+	$(hide) mksquashfs $(TARGET_INSTALLER_OUT)/data $@ -no-recovery -noappend
 	@echo --- Finished installer data image -[ $@ ]-
 
 

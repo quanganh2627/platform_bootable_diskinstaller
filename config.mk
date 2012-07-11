@@ -46,7 +46,6 @@ installer_base_modules := \
 	libext4_utils \
 	libz \
 	badblocks \
-	make_ext4fs \
 	resize2fs \
 	tune2fs \
 	mke2fs \

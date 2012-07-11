@@ -29,9 +29,9 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-
 #include <cutils/config_utils.h>
 #include <cutils/log.h>
+#include <make_ext4fs.h>
 
 #include "diskconfig/diskconfig.h"
 #include "installer.h"
@@ -269,26 +269,31 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
         /* put the partition name as the volume label */
         strncpy(vol_lbl, pinfo->name, sizeof(vol_lbl));
 
-        if (!strcmp(tmp, "ext4"))
-            rv = exec_cmd(MAKE_EXT4FS_BIN, "-L", vol_lbl, dest_part, NULL);
-        else if (!strcmp(tmp, "ext2"))
-            rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, dest_part, NULL);
-        else if (!strcmp(tmp, "ext3"))
-            rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, "-j", dest_part, NULL);
-        else {
-            ALOGE("Unknown filesystem type for mkfs: %s", tmp);
-            goto fail;
-        }
+        if (!strcmp(tmp, "ext4")) {
+            if (make_ext4fs(dest_part, -1, vol_lbl, NULL)) {
+                ALOGE("make_ext4fs failed");
+                goto fail;
+            }
+        } else {
+            if (!strcmp(tmp, "ext2"))
+                rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, dest_part, NULL);
+            else if (!strcmp(tmp, "ext3"))
+                rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, "-j", dest_part, NULL);
+            else {
+                ALOGE("Unknown filesystem type for mkfs: %s", tmp);
+                goto fail;
+            }
 
-        if (rv < 0)
-            goto fail;
-        else if (rv > 0) {
-            ALOGE("Error while running mke2fs: %d", rv);
-            goto fail;
+            if (rv < 0)
+                goto fail;
+            else if (rv > 0) {
+                ALOGE("Error while running mke2fs: %d", rv);
+                goto fail;
+            }
+            sync();
+            if (do_fsck(dest_part, 0))
+                goto fail;
         }
-        sync();
-        if (do_fsck(dest_part, 0))
-            goto fail;
         goto done;
     }
 

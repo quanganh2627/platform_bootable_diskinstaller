@@ -1,9 +1,0 @@
-on fs
-    wait /dev/block/sdb5 20
-    mount squashfs /dev/block/sdb5 /images nosuid nodev
-    mount tmpfs tmpfs /data
-    mount tmpfs tmpfs /cache
-    mount ext4 loop@/images/system.img /system ro
-    mkdir /stash
-    mount ext4 /dev/block/sdb6 /stash rw
-

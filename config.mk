@@ -4,7 +4,6 @@ diskinstaller_root := bootable/diskinstaller
 
 installer_root_out := $(TARGET_INSTALLER_OUT)/installer-root
 installer_system_out := $(installer_root_out)/system
-installer_live_root_out := $(TARGET_INSTALLER_OUT)/live-root
 
 android_sysbase_modules := \
 	libc \
@@ -131,22 +130,6 @@ $(installer_data_img): $(diskinstaller_root)/config.mk \
 	@echo --- Finished installer data image -[ $@ ]-
 
 
-# Ramdisk for the live boot environment
-installer_live_initrc := $(diskinstaller_root)/init-live.$(TARGET_INSTALLER_BOOTMEDIA).rc
-installer_live_ramdisk := $(TARGET_INSTALLER_OUT)/ramdisk-live.img.gz
-$(installer_live_ramdisk):  $(diskinstaller_root)/config.mk \
-		$(MKBOOTFS) \
-		$(INSTALLED_RAMDISK_TARGET) \
-		$(installer_live_initrc) $(MINIGZIP)
-	@echo "Creating live ramdisk: $@"
-	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
-	$(hide) rm -rf $(installer_live_root_out)
-	$(hide) cp -fR $(TARGET_ROOT_OUT) $(installer_live_root_out)
-	$(hide) cp -f $(installer_live_initrc) $(installer_live_root_out)/init.$(TARGET_INSTALLER_BOOTMEDIA).rc
-	$(hide) mkdir -p $(installer_live_root_out)/images
-	$(hide) $(MKBOOTFS) $(installer_live_root_out) | $(MINIGZIP) > $@
-	@echo "Done with live ramdisk -[ $@ ]-"
-
 
 # Bootimage for entering the installation process
 # Force normal VGA so that printks can be seen on the display
@@ -158,22 +141,7 @@ $(installer_boot_img):  $(diskinstaller_root)/config.mk \
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
 	$(hide) $(MKBOOTIMG) --kernel $(INSTALLED_KERNEL_TARGET) \
 		     --ramdisk $(installer_ramdisk) \
-		     --cmdline "$(BOARD_KERNEL_CMDLINE) vga=normal androidboot.bootmedia=$(TARGET_INSTALLER_BOOTMEDIA)" \
-		     --output $@
-
-
-# Bootimage for launching into a live Android environment from the USB
-# stick. The system partition is loopback mounted from the collection
-# of images, and data/cache are ramdisks.
-installer_live_boot_img := $(TARGET_INSTALLER_OUT)/installer_live_boot.img
-$(installer_live_boot_img): $(diskinstaller_root)/config.mk \
-		$(INSTALLED_KERNEL_TARGET) \
-		$(installer_live_ramdisk) \
-		$(MKBOOTIMG)
-	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
-	$(hide) $(MKBOOTIMG) --kernel $(INSTALLED_KERNEL_TARGET) \
-		     --ramdisk $(installer_live_ramdisk) \
-		     --cmdline "$(BOARD_KERNEL_CMDLINE) androidboot.bootmedia=$(TARGET_INSTALLER_BOOTMEDIA)" \
+		     --cmdline "$(BOARD_KERNEL_CMDLINE) vga=normal androidboot.console=tty0" \
 		     --output $@
 
 
@@ -185,14 +153,12 @@ $(installer_stash_img): $(diskinstaller_root)/config.mk $(MAKE_EXT4FS)
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
 	$(hide) $(MAKE_EXT4FS) -l $(installer_stash_size) -a stash $@
 
-
 # A phony target for all the diskinstaller image artifacts that don't
 # depend on SYSLINUX
 .PHONY: diskinstaller-partitions
 diskinstaller-partitions: \
 		$(installer_data_img) \
 		$(installer_boot_img) \
-		$(installer_live_boot_img) \
 		$(installer_stash_img)
 
 ifeq ($(TARGET_USE_SYSLINUX),true)
@@ -224,7 +190,6 @@ edit_mbr := $(HOST_OUT_EXECUTABLES)/editdisklbl
 INSTALLED_DISKINSTALLERIMAGE_TARGET := $(PRODUCT_OUT)/installer.img
 $(INSTALLED_DISKINSTALLERIMAGE_TARGET): $(diskinstaller_root)/config.mk \
 		$(installer_bootloader_img) \
-		$(installer_live_boot_img) \
 		$(installer_boot_img) \
 		$(installer_data_img) \
 		$(installer_stash_img) \
@@ -237,7 +202,6 @@ $(INSTALLED_DISKINSTALLERIMAGE_TARGET): $(diskinstaller_root)/config.mk \
 	$(hide) $(edit_mbr) -v -l $(installer_layout) -i $@ \
 		inst_bootloader=$(installer_bootloader_img) \
 		inst_boot=$(installer_boot_img) \
-		inst_live=$(installer_live_boot_img) \
 		inst_data=$(installer_data_img) \
 		inst_stash=$(installer_stash_img)
 	$(hide) dd if=$(SYSLINUX_BASE)/mbr.bin of=$@ bs=440 count=1 conv=notrunc

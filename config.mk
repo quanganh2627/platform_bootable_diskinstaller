@@ -30,7 +30,7 @@ $(hide) $(foreach _f,$(android_sysbase_files), \
 	f=$(patsubst $(1)/%,$(2)/%,$(_f)); \
 	mkdir -p `dirname $$f`; \
 	echo "Copy: $$f" ; \
-	cp -fR $(_f) $$f; \
+	$(ACP) -fdp $(_f) $$f; \
 )
 endef
 
@@ -61,7 +61,7 @@ $(hide) $(foreach m,$(installer_base_modules), \
 		$(firstword $(strip $(call module-installed-files,$(m))))); \
 	echo "Copy: $$src -> $$dest"; \
 	mkdir -p `dirname $$dest`; \
-	cp -fdp $$src $$dest; \
+	$(ACP) -fdp $$src $$dest; \
 )
 endef
 
@@ -80,12 +80,12 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 		$(TARGET_DISKINSTALLER_CONFIG) \
 		$(android_sysbase_files) \
 		$(installer_base_files) \
-		$(INSTALLED_BUILD_PROP_TARGET) $(MINIGZIP)
+		$(INSTALLED_BUILD_PROP_TARGET) $(MINIGZIP) $(ACP)
 	@echo ----- Making installer image ------
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
 	$(hide) rm -rf $(installer_root_out)
 	@echo Copying baseline ramdisk...
-	$(hide) cp -fR $(TARGET_ROOT_OUT) $(installer_root_out)
+	$(hide) $(ACP) -rpdf $(TARGET_ROOT_OUT) $(installer_root_out)
 	$(hide) rm -f $(installer_root_out)/initlogo.rle
 	$(hide) mkdir -p $(installer_system_out)/
 	$(hide) mkdir -p $(installer_system_out)/etc
@@ -95,12 +95,12 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 	$(call installer-copy-modules,$(TARGET_OUT),\
 		$(installer_system_out))
 	@echo Modifying ramdisk contents...
-	$(hide) cp -f $(installer_initrc) $(installer_root_out)/
-	$(hide) cp -f $(TARGET_DISK_LAYOUT_CONFIG) \
+	$(hide) $(ACP) -f $(installer_initrc) $(installer_root_out)/
+	$(hide) $(ACP) -f $(TARGET_DISK_LAYOUT_CONFIG) \
 		$(installer_system_out)/etc/disk_layout.conf
-	$(hide) cp -f $(TARGET_DISKINSTALLER_CONFIG) \
+	$(hide) $(ACP) -f $(TARGET_DISKINSTALLER_CONFIG) \
 		$(installer_system_out)/etc/installer.conf
-	$(hide) cp -f $(installer_binary) $(installer_system_out)/bin/installer
+	$(hide) $(ACP) -f $(installer_binary) $(installer_system_out)/bin/installer
 	$(hide) chmod ug+rw $(installer_root_out)/default.prop
 	$(hide) cat $(INSTALLED_BUILD_PROP_TARGET) >> $(installer_root_out)/default.prop
 	$(hide) $(MKBOOTFS) $(installer_root_out) | $(MINIGZIP) > $@
@@ -121,11 +121,11 @@ ifeq ($(TARGET_USE_SYSLINUX),true)
 installer_data_images += $(SYSLINUX_BASE)/mbr.bin
 endif
 $(installer_data_img): $(diskinstaller_root)/config.mk \
-			$(installer_data_images)
+			$(installer_data_images) | $(ACP)
 	@echo --- Making installer data image ------
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)/data
-	$(hide) cp -f $(installer_data_images) $(TARGET_INSTALLER_OUT)/data/
+	$(hide) $(ACP) -f $(installer_data_images) $(TARGET_INSTALLER_OUT)/data/
 	$(hide) mksquashfs $(TARGET_INSTALLER_OUT)/data $@ -no-recovery -noappend
 	@echo --- Finished installer data image -[ $@ ]-
 

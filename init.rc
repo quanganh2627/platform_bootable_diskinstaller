@@ -12,7 +12,10 @@ on init
     mkdir /data
     mkdir /cache
     mkdir /stash
+    mkdir /bootloader
+    mkdir /tmp
     mount /tmp /tmp tmpfs
+    chmod 1777 /tmp
 
     wait /data/system.img 20
     start installer

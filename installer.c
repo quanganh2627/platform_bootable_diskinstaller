@@ -28,9 +28,11 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <dirent.h>
 
 #include <cutils/config_utils.h>
 #include <cutils/log.h>
+#include <cutils/misc.h>
 #include <make_ext4fs.h>
 #include <sparse_format.h>
 
@@ -43,9 +45,17 @@
 #define TUNE2FS_BIN         "/system/bin/tune2fs"
 #define RESIZE2FS_BIN       "/system/bin/resize2fs"
 #define SIMG2IMG_BIN        "/system/bin/simg2img"
+#define MKDOSFS_BIN         "/system/bin/newfs_msdos"
+#define FSCK_MSDOS_BIN      "/system/bin/fsck_msdos"
 /*Size of the crypto footer (16 K) */
 #define CRYPTO_FOOTER_SIZE  (16)
 #define MAX_DIGITS          (20)
+/*SYSLINUX related*/
+#define BOOTLOADER_PATH     "/bootloader"
+#define SYSLINUX_BIN        "/system/bin/syslinux"
+#define SYSLINUX_FILES_PATH "/data/syslinux"
+#define SYSLINUX_CFG_TEM_FN SYSLINUX_FILES_PATH "/syslinux.cfg"
+#define SYSLINUX_CFG_FN     BOOTLOADER_PATH "/syslinux.cfg"
 
 static int
 usage(void)
@@ -123,9 +133,49 @@ exec_cmd_end:
     return rv;
 }
 
+static int
+do_vfat_fsck(const char *dst)
+{
+    int rv;
+    int pass = 1;
+
+    /* copied from /system/vold/Fat.cpp */
+    ALOGI("Running fsck_msdos... This MAY take a while.");
+    do {
+        rv = exec_cmd(FSCK_MSDOS_BIN, "-p", "-f", dst, NULL);
+
+        switch(rv) {
+        case 0:
+            ALOGI("Filesystem check completed OK");
+            return 0;
+
+        case 2:
+            ALOGE("Filesystem check failed (not a FAT filesystem)");
+            errno = ENODATA;
+            return -1;
+
+        case 4:
+            if (pass++ <= 3) {
+                ALOGW("Filesystem modified - rechecking (pass %d)",
+                        pass);
+                continue;
+            }
+            ALOGE("Failing check after too many rechecks");
+            errno = EIO;
+            return -1;
+
+        default:
+            ALOGE("Filesystem check failed (unknown exit code %d)", rv);
+            errno = EIO;
+            return -1;
+        }
+    } while (0);
+
+    return -1;
+}
 
 static int
-do_fsck(const char *dst, int force)
+do_e2fsck(const char *dst, int force)
 {
     int rv;
     const char *opts = force ? "-fy" : "-y";
@@ -183,7 +233,7 @@ process_ext2_image(const char *dst, const char *src, uint32_t flags, int test, i
 
     /* Next, let's e2fsck the fs to make sure it got written ok, and
      * everything is peachy */
-    if (do_fsck(dst, 1))
+    if (do_e2fsck(dst, 1))
         return 1;
 
     /* set the mount count to 1 so that 1st mount on boot doesn't complain */
@@ -213,7 +263,7 @@ process_ext2_image(const char *dst, const char *src, uint32_t flags, int test, i
             return 1;
         }
         sync();
-        if (do_fsck(dst, 0))
+        if (do_e2fsck(dst, 0))
             return 1;
     }
 
@@ -226,13 +276,210 @@ process_ext2_image(const char *dst, const char *src, uint32_t flags, int test, i
             return 1;
         }
         sync();
-        if (do_fsck(dst, 0))
+        if (do_e2fsck(dst, 0))
             return 1;
     }
 
     return 0;
 }
 
+static int
+do_syslinux(const char* dst, struct disk_info *dinfo, int test)
+{
+    int rv = 1, i;
+    DIR* dirp;
+    struct dirent *de;
+    char* src_fp = NULL;
+    char* dst_fp = NULL;
+    FILE *dst_fd;
+    void *data = NULL;
+    unsigned int data_sz;
+
+    /* hold the partition numbers, -1 means non-exist */
+    int part_misc_no = 0;
+    int part_boot_no = 0;
+    int part_recovery_no = 0;
+    int part_droidboot_no = 0;
+    char* part_dev;
+    char* disk_dev_prefix;
+
+    if (test) {
+        ALOGE("SYSLINUX bootloader is not installed due to test mode.");
+        return 0;
+    }
+
+    /* check for file existence first */
+    if (access(SYSLINUX_CFG_TEM_FN, R_OK)) {
+        ALOGE("Error: %s has no read access or does not exist", SYSLINUX_CFG_TEM_FN);
+        return 1;
+    }
+    if (access(SYSLINUX_BIN, R_OK | X_OK)) {
+        ALOGE("Error: %s has no read/execution access or does not exist", SYSLINUX_CFG_TEM_FN);
+        return 1;
+    }
+
+    /* Figure out partition number and make sure essential ones are defined */
+    if (asprintf(&disk_dev_prefix, "%s%%d", dinfo->device) == -1) {
+        ALOGE("Error allocating memory");
+        return 1;
+    }
+    part_dev = find_part_device(dinfo, "misc");
+    if (part_dev) {
+        sscanf(part_dev, disk_dev_prefix, &part_misc_no);
+    }
+    part_dev = find_part_device(dinfo, "boot");
+    if (part_dev) {
+        sscanf(part_dev, disk_dev_prefix, &part_boot_no);
+    }
+    part_dev = find_part_device(dinfo, "recovery");
+    if (part_dev) {
+        sscanf(part_dev, disk_dev_prefix, &part_recovery_no);
+    }
+    part_dev = find_part_device(dinfo, "droidboot");
+    if (part_dev) {
+        sscanf(part_dev, disk_dev_prefix, &part_droidboot_no);
+    }
+
+    if (!part_misc_no) {
+        ALOGE("Error finding the 'misc' partition in partition table");
+        return 1;
+    }
+    if (!part_boot_no) {
+        ALOGE("Error finding the 'boot' partition in partition table");
+        return 1;
+    }
+    if (!part_recovery_no) {
+        ALOGE("Error finding the 'recovery' partition in partition table");
+        return 1;
+    }
+    if (!part_droidboot_no) {
+        ALOGI("Partiton 'droidboot' is not in partition table. There will be no droidboot on device.");
+    }
+
+    /* executing syslinux to installer bootloader */
+    if ((rv = exec_cmd(SYSLINUX_BIN, "--install", dst, NULL)) < 0)
+        return 1;
+    if (rv) {
+        ALOGE("Error while running syslinux: %d", rv);
+        return 1;
+    }
+
+    /* Mount file system */
+    if (mount(dst, BOOTLOADER_PATH, "vfat", 0, NULL)) {
+        ALOGE("Could not mount %s on %s as vfat", dst, BOOTLOADER_PATH);
+        return 1;
+    }
+
+    /* Copy files there */
+    dirp = opendir(SYSLINUX_FILES_PATH);
+    while (dirp && (de = readdir(dirp))) {
+        if (de->d_type == DT_REG) {
+            if (asprintf(&src_fp, "%s/%s", SYSLINUX_FILES_PATH, de->d_name) != -1) {
+                if (asprintf(&dst_fp, "%s/%s", BOOTLOADER_PATH, de->d_name) != -1) {
+                    /* load file first using cutils' load_file() */
+                    data = load_file(src_fp, &data_sz);
+
+                    if (!data) {
+                        ALOGE("Error reading '%s': %s", src_fp, strerror(errno));
+                        goto fail;
+                    }
+
+                    /* write to destination manually... */
+                    dst_fd = fopen(dst_fp, "w");
+                    if (!dst_fd) {
+                        ALOGE("Error creating file '%s': %s", dst_fp, strerror(errno));
+                        goto fail;
+                    }
+
+                    i = write(fileno(dst_fd), data, data_sz);
+                    if (i < 0) {
+                        ALOGE("Error writing to file '%s': %s", dst_fp, strerror(errno));
+                        goto fail;
+                    }
+
+                    /* clean up */
+                    fclose(dst_fd); dst_fd = NULL;
+                    free(data);     data = NULL;
+                    free(src_fp);   src_fp = NULL;
+                    free(dst_fp);   dst_fp = NULL;
+                } else {
+                    ALOGE("Error constructing destination filename for '%s'", de->d_name);
+                    goto fail;
+                }
+            } else {
+                ALOGE("Error constructing source filename for '%s'", de->d_name);
+                goto fail;
+            }
+        }
+    }
+    closedir(dirp);
+
+    /* Process SYSLINUX config file */
+    data = load_file(SYSLINUX_CFG_TEM_FN, &data_sz);
+    if (!data) {
+        ALOGE("Error reading '%s': %s", SYSLINUX_CFG_TEM_FN, strerror(errno));
+        goto fail;
+    }
+    dst_fd = fopen(SYSLINUX_CFG_FN, "w");
+    if (!dst_fd) {
+        ALOGE("Error creating file '%s': %s", dst_fp, strerror(errno));
+        goto fail;
+    }
+
+    i = write(fileno(dst_fd), data, data_sz);
+    if (i < 0) {
+        ALOGE("Error writing to file '%s' (%s)", SYSLINUX_CFG_FN, strerror(errno));
+        goto fail;
+    }
+
+    i = fprintf(dst_fd, "menu androidcommand %d\n\n", part_misc_no);
+    if (i < 0) {
+        ALOGE("Error writing to file '%s' (%s)", SYSLINUX_CFG_FN, strerror(errno));
+        goto fail;
+    }
+
+    i = fprintf(dst_fd,
+            "label boot\n\tmenu label ^Boot Android system\n\tcom32 android.c32\n\tappend current %d\n\n",
+            part_boot_no);
+    if (i < 0) {
+        ALOGE("Error writing to file '%s' (%s)", SYSLINUX_CFG_FN, strerror(errno));
+        goto fail;
+    }
+
+    i = fprintf(dst_fd,
+            "label recovery\n\tmenu label ^OS Recovery mode\n\tcom32 android.c32\n\tappend current %d\n\n",
+            part_recovery_no);
+    if (i < 0) {
+        ALOGE("Error writing to file '%s' (%s)", SYSLINUX_CFG_FN, strerror(errno));
+        goto fail;
+    }
+
+    if (part_droidboot_no > 0) {
+        i = fprintf(dst_fd,
+                "label fastboot\n\tmenu label ^Fastboot mode\n\tcom32 android.c32\n\tappend current %d\n\n",
+                part_droidboot_no);
+        if (i < 0) {
+            ALOGE("Error writing to file '%s' (%s)", SYSLINUX_CFG_FN, strerror(errno));
+            goto fail;
+        }
+    }
+
+    fclose(dst_fd); dst_fd = NULL;
+    free(data);     data = NULL;
+
+    /* force sync and un-mount */
+    sync();
+    umount(BOOTLOADER_PATH);
+
+    rv = 0;
+
+fail:
+    if (dst_fd) fclose(dst_fd);
+    if (src_fp) free(src_fp);
+    if (dst_fp) free(dst_fp);
+    if (data)   free(data);
+    return rv;
+}
 
 /* TODO: PLEASE break up this function into several functions that just
  * do what they need with the image node. Many of them will end up
@@ -250,6 +497,8 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
     int rv;
     int func_ret = 1;
     int part_size = 0;
+    int is_e2fs = 0;
+    int is_vfat = 0;
 
     filename = config_str(img, "filename", NULL);
 
@@ -301,11 +550,16 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
                 goto fail;
             }
         } else {
-            if (!strcmp(tmp, "ext2"))
+            if (!strcmp(tmp, "ext2")) {
                 rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, dest_part, NULL);
-            else if (!strcmp(tmp, "ext3"))
+                is_e2fs = 1;
+            } else if (!strcmp(tmp, "ext3")) {
                 rv = exec_cmd(MKE2FS_BIN, "-L", vol_lbl, "-j", dest_part, NULL);
-            else {
+                is_e2fs = 1;
+            } else if (!strcmp(tmp, "vfat")) {
+                rv = exec_cmd(MKDOSFS_BIN, "-L", vol_lbl, dest_part, NULL);
+                is_vfat = 1;
+            } else {
                 ALOGE("Unknown filesystem type for mkfs: %s", tmp);
                 goto fail;
             }
@@ -313,13 +567,38 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
             if (rv < 0)
                 goto fail;
             else if (rv > 0) {
-                ALOGE("Error while running mke2fs: %d", rv);
+                ALOGE("Error creating filesystem for %s: %d", vol_lbl, rv);
                 goto fail;
             }
             sync();
-            if (do_fsck(dest_part, 0))
-                goto fail;
+            if (is_e2fs) {
+                if (do_e2fsck(dest_part, 0))
+                    goto fail;
+            } else if (is_vfat) {
+                if (do_vfat_fsck(dest_part))
+                    goto fail;
+            }
         }
+
+        /* need to install bootloader onto partition? */
+        const char* tmp2;
+        if ((tmp2 = config_str(img, "bootloader", NULL)) != NULL) {
+            if (!strcmp(tmp2, "syslinux")) {
+                if (is_vfat) {
+                    if (do_syslinux(dest_part, dinfo, test)) {
+                        ALOGE("Error installing SYSLINUX onto partition.");
+                        goto fail;
+                    }
+                } else {
+                    ALOGE("SYSLINUX cannot work with non-FAT filesystem.");
+                    goto fail;
+                }
+            } else {
+                ALOGE("Unknown bootloader type '%s'", tmp);
+                goto fail;
+            }
+        }
+
         goto done;
     }
 

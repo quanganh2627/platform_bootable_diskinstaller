@@ -20,7 +20,8 @@ android_sysbase_modules := \
 	gdbserver \
 	strace \
 	netcfg \
-	simg2img
+	simg2img \
+	fsck_msdos
 android_sysbase_files = \
 	$(call module-installed-files,$(android_sysbase_modules))
 
@@ -71,12 +72,19 @@ installer_initrc := $(diskinstaller_root)/init.rc
 installer_ramdisk := $(TARGET_INSTALLER_OUT)/ramdisk-installer.img.gz
 installer_binary := \
 	$(call intermediates-dir-for,EXECUTABLES,diskinstaller)/diskinstaller
+ifeq ($(TARGET_USE_SYSLINUX),true)
+ifeq ($(TARGET_INSTALL_CUSTOM_SYSLINUX_CONFIG),true)
+installer_binary_syslinux := \
+	$(call intermediates-dir-for,EXECUTABLES,android_syslinux)/android_syslinux
+endif
+endif
 $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 		$(MKBOOTFS) \
 		$(INSTALLED_RAMDISK_TARGET) \
 		$(INSTALLED_BOOTIMAGE_TARGET) \
 		$(TARGET_DISK_LAYOUT_CONFIG) \
 		$(installer_binary) \
+		$(installer_binary_syslinux) \
 		$(installer_initrc) \
 		$(TARGET_DISKINSTALLER_CONFIG) \
 		$(android_sysbase_files) \
@@ -102,6 +110,12 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 	$(hide) $(ACP) -f $(TARGET_DISKINSTALLER_CONFIG) \
 		$(installer_system_out)/etc/installer.conf
 	$(hide) $(ACP) -f $(installer_binary) $(installer_system_out)/bin/installer
+ifeq ($(TARGET_USE_SYSLINUX),true)
+ifeq ($(TARGET_INSTALL_CUSTOM_SYSLINUX_CONFIG),true)
+	$(hide) $(ACP) -f $(installer_binary_syslinux) $(installer_system_out)/bin/syslinux
+	$(hide) chmod +x $(installer_system_out)/bin/syslinux
+endif
+endif
 	$(hide) chmod ug+rw $(installer_root_out)/default.prop
 	$(hide) cat $(INSTALLED_BUILD_PROP_TARGET) >> $(installer_root_out)/default.prop
 	$(hide) $(MKBOOTFS) $(installer_root_out) | $(MINIGZIP) > $@
@@ -110,8 +124,7 @@ $(installer_ramdisk): $(diskinstaller_root)/config.mk \
 
 # Data image containing all the images that installer will write to the device
 installer_data_img := $(TARGET_INSTALLER_OUT)/installer_data.squashfs
-installer_data_images := $(INSTALLED_BOOTLOADER_MODULE) \
-			 $(INSTALLED_BOOTIMAGE_TARGET) \
+installer_data_images := $(INSTALLED_BOOTIMAGE_TARGET) \
 			 $(INSTALLED_RECOVERYIMAGE_TARGET) \
 			 $(INSTALLED_SYSTEMIMAGE) \
 			 $(INSTALLED_USERDATAIMAGE_TARGET)
@@ -120,13 +133,34 @@ installer_data_images += $(DROIDBOOT_BOOTIMAGE)
 endif
 ifeq ($(TARGET_USE_SYSLINUX),true)
 installer_data_images += $(SYSLINUX_BASE)/mbr.bin
-endif
+
+ifeq ($(TARGET_INSTALL_CUSTOM_SYSLINUX_CONFIG),true)
+installer_data_images_syslinux = $(TARGET_SYSLINUX_FILES)
+installer_data_images_syslinux_cfg = $(TARGET_SYSLINUX_CONFIG_TEMPLATE)
+else # TARGET_INSTALL_CUSTOM_SYSLINUX_CONFIG
+installer_data_images += $(INSTALLED_BOOTLOADER_MODULE)
+endif # TARGET_INSTALL_CUSTOM_SYSLINUX_CONFIG
+
+else # TARGET_USE_SYSLINUX
+installer_data_images += $(INSTALLED_BOOTLOADER_MODULE)
+endif # TARGET_USE_SYSLINUX
 $(installer_data_img): $(diskinstaller_root)/config.mk \
-			$(installer_data_images) | $(ACP)
+			$(installer_data_images) \
+			$(installer_data_images_syslinux) \
+			$(installer_data_images_syslinux_config) | $(ACP)
 	@echo --- Making installer data image ------
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)
 	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)/data
 	$(hide) $(ACP) -f $(installer_data_images) $(TARGET_INSTALLER_OUT)/data/
+ifeq ($(TARGET_USE_SYSLINUX),true)
+ifeq ($(TARGET_INSTALL_CUSTOM_SYSLINUX_CONFIG),true)
+	$(hide) mkdir -p $(TARGET_INSTALLER_OUT)/data/syslinux/
+	$(hide) $(ACP) -f $(installer_data_images_syslinux) \
+		$(TARGET_INSTALLER_OUT)/data/syslinux/
+	$(hide) $(ACP) -f $(installer_data_images_syslinux_cfg) \
+		$(TARGET_INSTALLER_OUT)/data/syslinux/syslinux.cfg
+endif
+endif
 	$(hide) mksquashfs $(TARGET_INSTALLER_OUT)/data $@ -no-recovery -noappend
 	@echo --- Finished installer data image -[ $@ ]-
 

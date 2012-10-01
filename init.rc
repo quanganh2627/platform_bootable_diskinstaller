@@ -13,9 +13,21 @@ on init
     mkdir /cache
     mkdir /stash
     mount /tmp /tmp tmpfs
-    wait /dev/block/sdb3 20
+
+    wait /data/system.img 20
+    start installer
+
+on device-added-/dev/block/sdb3
     mount squashfs /dev/block/sdb3 /data
-    mount ext4 /dev/block/sdb5 /stash rw
+
+on device-added-/dev/block/sdb4
+    mount ext4 /dev/block/sdb4 /stash rw
+
+on device-added-/dev/block/sdc3
+    mount squashfs /dev/block/sdc3 /data
+
+on device-added-/dev/block/sdc4
+    mount ext4 /dev/block/sdc4 /stash rw
 
 on boot
     ifup lo
@@ -30,6 +42,7 @@ service ueventd /sbin/ueventd
 service installer /system/bin/installer
     console
     oneshot
+    disabled
 
 service logcat /system/bin/logcat
     console

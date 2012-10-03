@@ -32,6 +32,7 @@
 #include <cutils/config_utils.h>
 #include <cutils/log.h>
 #include <make_ext4fs.h>
+#include <sparse_format.h>
 
 #include "diskconfig/diskconfig.h"
 #include "installer.h"
@@ -41,6 +42,7 @@
 #define E2FSCK_BIN          "/system/bin/e2fsck"
 #define TUNE2FS_BIN         "/system/bin/tune2fs"
 #define RESIZE2FS_BIN       "/system/bin/resize2fs"
+#define SIMG2IMG_BIN        "/system/bin/simg2img"
 /*Size of the crypto footer (16 K) */
 #define CRYPTO_FOOTER_SIZE  (16)
 #define MAX_DIGITS          (20)
@@ -147,9 +149,33 @@ process_ext2_image(const char *dst, const char *src, uint32_t flags, int test, i
 {
     int rv;
     char resize_fs[MAX_DIGITS];
+    int fd;
+    sparse_header_t sparse_hdr;
+    int is_sparse_img = 0;
+
+    /* Check if the src is a sparse image */
+    fd = open(src, O_RDONLY);
+    if (fd < 0) {
+        ALOGE("Cannot open '%s' for read: %s", src, strerror(errno));
+        return 1;
+    }
+    if (read(fd, &sparse_hdr, sizeof(sparse_header_t)) >= (int)sizeof(sparse_header_t)) {
+        if (sparse_hdr.magic == SPARSE_HEADER_MAGIC) {
+            is_sparse_img = 1;
+        }
+    }
+    close(fd);
 
     /* First, write the image to disk. */
-    if (write_raw_image(dst, src, 0, test))
+    if (is_sparse_img) {
+        // write sparse image to disk using simg2img
+        if ((rv = exec_cmd(SIMG2IMG_BIN, src, dst, NULL)) < 0)
+            return 1;
+        if (rv) {
+            ALOGE("Error while running simg2img: %d", rv);
+            return 1;
+        }
+    } else if (write_raw_image(dst, src, 0, test))
         return 1;
 
     if (test)

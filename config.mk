@@ -19,7 +19,8 @@ android_sysbase_modules := \
 	logcat \
 	gdbserver \
 	strace \
-	netcfg
+	netcfg \
+	simg2img
 android_sysbase_files = \
 	$(call module-installed-files,$(android_sysbase_modules))
 

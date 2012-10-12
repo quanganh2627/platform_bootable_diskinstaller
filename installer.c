@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -47,8 +48,6 @@
 #define SIMG2IMG_BIN        "/system/bin/simg2img"
 #define MKDOSFS_BIN         "/system/bin/newfs_msdos"
 #define FSCK_MSDOS_BIN      "/system/bin/fsck_msdos"
-/*Size of the crypto footer (16 K) */
-#define CRYPTO_FOOTER_SIZE  (16)
 #define MAX_DIGITS          (20)
 /*SYSLINUX related*/
 #define BOOTLOADER_PATH     "/bootloader"
@@ -247,12 +246,11 @@ process_ext2_image(const char *dst, const char *src, uint32_t flags, int test, i
     /* If the user requested that we resize, let's do it now */
     if (flags & INSTALL_FLAG_RESIZE) {
          /* Resize the filesystem to extend into the left partition space */
-         /* Leave some space for the crypto footer (usualy 16k) */
         if (part_size)
-            rv = snprintf(resize_fs , MAX_DIGITS, "%dK", (part_size - CRYPTO_FOOTER_SIZE));
+            rv = snprintf(resize_fs , MAX_DIGITS, "%dK", part_size);
         else
             strcpy(resize_fs, " ");
-	if (rv < 0) {
+        if (rv < 0) {
             ALOGE("Error setting size: %d", rv);
             return 1;
         }
@@ -490,17 +488,21 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
     struct part_info *pinfo = NULL;
     loff_t offset = (loff_t)-1;
     const char *filename = NULL;
+    const char *partname = NULL;
     char *dest_part = NULL;
     const char *tmp;
     uint32_t flags = 0;
     uint8_t type = 0;
     int rv;
     int func_ret = 1;
-    int part_size = 0;
+    int part_size = 0; /* in kilo-bytes */
+    int footer_size = 0; /* in kilo-bytes */
     int is_e2fs = 0;
     int is_vfat = 0;
 
     filename = config_str(img, "filename", NULL);
+    /* Use partname as either filename or partition parameter */
+    partname = filename;
 
     /* process the 'offset' image parameter */
     if ((tmp = config_str(img, "offset", NULL)) != NULL)
@@ -525,9 +527,57 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
                  " processing image %s", pinfo->name, img->name);
             goto fail;
         }
+        partname = tmp;
         offset = pinfo->start_lba * dinfo->sect_size;
         part_size = pinfo->len_kb;
     }
+
+    /* proess the 'footer' image parameter */
+    if ((tmp = config_str(img, "footer", NULL)) != NULL) {
+        char *footer_param, *p_end;
+        float multiplier = 0.0f;
+        int len = 0;
+        char last_char = 0;
+
+        if (!(footer_param = strdup(tmp))) {
+            ALOGE("Cannot allocate memory for dup'd footer string");
+            goto fail;
+        }
+        len = strlen(footer_param);
+        last_char = footer_param[len - 1];
+
+        if (last_char == 'K')
+            multiplier = 1;
+        else if (last_char == 'M')
+            multiplier = 1024;
+        else if (last_char == 'G')
+            multiplier = 1024 * 1024;
+        else if (!isdigit(last_char)) {
+            ALOGE("[%s] Unsupported footer size suffix: '%c'", partname, last_char);
+            free(footer_param);
+            goto fail;
+        }
+
+        errno = 0;
+        if (multiplier == 0) {
+            /* Size is in bytes, transform it into kilo-bytes. */
+            footer_size = strtol(footer_param, &p_end, 10) / 1024;
+        } else {
+            /* Size is suffixed. Cut the suffix and use the multiplier */
+            footer_param[len - 1] = '\0';
+            footer_size = strtol(footer_param, &p_end, 10) * multiplier;
+        }
+        /* Make sure that the number was correctly parsed and the parser went to
+         * the end of the string*/
+        if (errno != 0 || p_end - footer_param < (int)strlen(footer_param)) {
+            ALOGE("[%s] Invalid footer size: %s", partname, tmp);
+            free(footer_param);
+            goto fail;
+        }
+
+        free(footer_param);
+    }
+
 
     /* process the 'mkfs' parameter */
     if ((tmp = config_str(img, "mkfs", NULL)) != NULL) {
@@ -545,7 +595,15 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
         strncpy(vol_lbl, pinfo->name, sizeof(vol_lbl));
 
         if (!strcmp(tmp, "ext4")) {
-            if (make_ext4fs(dest_part, -1, vol_lbl, NULL)) {
+            int reserved = 0;
+            if (footer_size > 0) {
+                ALOGI("[%s] Using footer %dKB as reserved bytes in make_ext4fs", partname, footer_size);
+                reserved = -footer_size * 1024;
+               /* Since we used the footer in make_ext4fs, reset it to 0, so we don't use it again
+                * in resize2fs */
+               footer_size = 0;
+            }
+            if (make_ext4fs(dest_part, reserved, vol_lbl, NULL)) {
                 ALOGE("make_ext4fs failed");
                 goto fail;
             }
@@ -629,6 +687,15 @@ process_image_node(cnode *img, struct disk_info *dinfo, int test)
             }
         }
         free(flagstr_orig);
+    }
+    if (footer_size > 0 && part_size > footer_size) {
+        /* Resize the partition to a size so that we will leave some space
+         * free at the end of it, requested by 'footer'. */
+        part_size -= footer_size;
+        /* Also, make sure that the RESIZE flag is enabled. */
+        flags |= INSTALL_FLAG_RESIZE;
+        ALOGI("[%s] Using footer of size %dKB. Original size: %dKB, new size: %dKB",
+                partname, footer_size, part_size + footer_size, part_size);
     }
 
     /* process the 'type' image parameter */

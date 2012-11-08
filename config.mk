@@ -23,7 +23,7 @@ android_sysbase_modules := \
 	simg2img \
 	fsck_msdos
 android_sysbase_files = \
-	$(call module-installed-files,$(android_sysbase_modules))
+	$(filter $(PRODUCT_OUT)%,$(call module-installed-files,$(android_sysbase_modules)))
 
 # $(1): source base dir
 # $(2): target base dir

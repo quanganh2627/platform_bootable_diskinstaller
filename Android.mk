@@ -6,14 +6,15 @@ ifeq ($(TARGET_USE_DISKINSTALLER),true)
 LOCAL_SRC_FILES := \
 	installer.c
 
-LOCAL_C_INCLUDES := system/extras/ext4_utils
+LOCAL_C_INCLUDES := system/extras/ext4_utils \
+                    system/core/libsparse \
 
 LOCAL_CFLAGS := -O2 -g -W -Wall -Werror
 
 LOCAL_MODULE := diskinstaller
 LOCAL_MODULE_TAGS := optional
 
-LOCAL_STATIC_LIBRARIES := $(TARGET_DISK_CONFIG_LIB) libext4_utils libz
+LOCAL_STATIC_LIBRARIES := $(TARGET_DISK_CONFIG_LIB) libext4_utils_static libsparse_static libz
 LOCAL_SYSTEM_SHARED_LIBRARIES := \
 	libdiskconfig \
 	libcutils \

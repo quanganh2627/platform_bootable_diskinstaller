@@ -35,6 +35,7 @@
 #include <cutils/log.h>
 #include <cutils/misc.h>
 #include <make_ext4fs.h>
+#undef error
 #include <sparse_format.h>
 
 #include "diskconfig/diskconfig.h"

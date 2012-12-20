@@ -20,16 +20,16 @@ on init
     wait /data/system.img 20
     start installer
 
-on property:uevent_sdb3=add
+on device-added-/dev/block/sdb3
     mount squashfs /dev/block/sdb3 /data
 
-on property:uevent_sdb4=add
+on device-added-/dev/block/sdb4
     mount ext4 /dev/block/sdb4 /stash rw
 
-on property:uevent_sdc3=add
+on device-added-/dev/block/sdc3
     mount squashfs /dev/block/sdc3 /data
 
-on property:uevent_sdc4=add
+on device-added-/dev/block/sdc4
     mount ext4 /dev/block/sdc4 /stash rw
 
 on boot
